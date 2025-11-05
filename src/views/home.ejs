@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pinterest Clone</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .masonry-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    grid-auto-rows: 10px;
+  }
+  
+  @media (min-width: 640px) {
+    .masonry-grid {
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    }
+  }
+  
+  @media (min-width: 1024px) {
+    .masonry-grid {
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    }
+  }
+</style>
+</head>
+<body class="bg-gray-50">
+<!-- Navbar -->
+<nav class="flex items-center justify-between px-6 py-4 bg-white shadow-md sticky top-0 z-50">
+  <div class="flex items-center justify-center space-x-4">
+    <div class="text-2xl font-bold text-red-500">tudoPIN</div>
+    <a href="/publish" class="px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow-md hover:shadow-lg">Upload</a>
+  </div>
+  <div class="flex items-center space-x-4">
+    <% if (userId) { %>
+    <form action="/logout" method="post">
+      <button class="px-4 py-2 text-gray-700 hover:text-red-500 font-medium transition">Logout</button>
+    </form>
+    <% } else { %>
+    <a href="/login" class="text-gray-700 hover:text-red-500 font-medium transition">Login</a>
+    <a href="/signup" class="px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition shadow-md hover:shadow-lg">Sign Up</a>
+    <% } %>
+  </div>
+</nav>
+
+<main class="p-6 max-w-screen-2xl mx-auto">
+  <h1 class="text-4xl font-bold text-gray-800 mb-8">For you</h1>
+  
+  <div class="masonry-grid gap-4" id="images-container">
+    <% images.forEach(img => { %>
+    <div class="group cursor-pointer" data-image-id="<%= img.id %>">
+      <div class="relative overflow-hidden rounded-2xl shadow-md hover:shadow-2xl transition-shadow duration-300 bg-white">
+        <img 
+          src="../uploads/<%= img.filename %>" 
+          alt="<%= img.title || 'Pin image' %>"
+          class="w-full h-auto object-cover transition-transform duration-300 group-hover:scale-105"
+          onload="resizeGridItem(this.parentElement.parentElement)"
+        />
+        
+        <!-- Title and description overlay -->
+        <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+          <div class="text-white w-full">
+            <h3 class="font-semibold text-lg mb-1 line-clamp-2"><%= img.title || 'Untitled' %></h3>
+            <% if (img.description) { %>
+            <p class="text-sm text-gray-200 line-clamp-1"><%= img.description %></p>
+            <% } %>
+          </div>
+        </div>
+        
+        <div class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <button 
+            class="like-btn bg-white p-2.5 rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-200"
+            data-image-id="<%= img.id %>"
+            data-liked="<%= img.likedByUser %>"
+            title="<%= img.likedByUser ? 'Unlike' : 'Like' %>">
+            <svg class="w-5 h-5 <%= img.likedByUser ? 'fill-red-500' : 'fill-none stroke-gray-700' %> stroke-2 transition-all duration-200" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+            </svg>
+          </button>
+          <%  if (img.likes.length > 0) { %>
+          <div class="text-white text-sm font-extrabold text-center font-sans"><%= img.likes.length %></div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+    <% }) %>
+  </div>
+</main>
+
+<script>
+function resizeGridItem(item) {
+
+  const grid = document.getElementById('images-container');
+  const rowHeight = parseInt(window.getComputedStyle(grid).getPropertyValue('grid-auto-rows'));
+  const rowGap = parseInt(window.getComputedStyle(grid).getPropertyValue('gap'));
+  const contentHeight = item.querySelector('img').getBoundingClientRect().height;
+  const rowSpan = Math.ceil((contentHeight + rowGap) / (rowHeight + rowGap));
+  item.style.gridRowEnd = `span ${rowSpan}`;
+}
+
+function resizeAllGridItems() {
+  const allItems = document.querySelectorAll('#images-container > div');
+  allItems.forEach(item => {
+    const img = item.querySelector('img');
+    if (img.complete) {
+      resizeGridItem(item);
+    }
+  });
+}
+
+window.addEventListener('resize', resizeAllGridItems);
+
+function attachLikeHandlers() {
+  document.querySelectorAll('.like-btn').forEach(button => {
+    if (!button.dataset.bound) {
+      button.dataset.bound = 'true';
+      button.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        const imageId = btn.dataset.imageId;
+        const card = btn.closest('[data-image-id]');
+
+        try {
+          const res = await fetch(`/images/${imageId}/like`, {
+            method: 'POST',
+          });
+
+          if (res.redirected && res.url.endsWith('/login')) {
+            window.location.href = '/login';
+            return;
+          }
+
+          const data = await res.json();
+
+          if (data.error) {
+            alert(data.error);
+            return;
+          }
+
+          btn.dataset.liked = data.liked;
+          btn.title = data.liked ? 'Unlike' : 'Like';
+          
+          const svg = btn.querySelector('svg');
+          if (data.liked) {
+            svg.classList.remove('fill-none', 'stroke-gray-700');
+            svg.classList.add('fill-red-500');
+          } else {
+            svg.classList.remove('fill-red-500');
+            svg.classList.add('fill-none', 'stroke-gray-700');
+          }
+          
+        } catch (err) {
+          console.error(err);
+        }
+      });
+    }
+  });
+}
+
+attachLikeHandlers();
+
+let skipCount = 5;
+let skip = skipCount; 
+let loading = false;
+const take = skipCount;
+
+async function loadMoreImages() {
+  if (loading) return;
+  loading = true;
+
+  try {
+    const res = await fetch(`/api/images?skip=${skip}&take=${take}`);
+    const newImages = await res.json();
+    if (newImages.length === 0) return;
+
+    const container = document.getElementById('images-container');
+    
+    newImages.forEach(img => {
+      const div = document.createElement('div');
+      div.className = "group cursor-pointer";
+      div.setAttribute('data-image-id', img.id);
+      div.innerHTML = `
+        <div class="relative overflow-hidden rounded-2xl shadow-md hover:shadow-2xl transition-shadow duration-300 bg-white">
+          <img 
+            src="../uploads/${img.filename}" 
+            alt="${img.title || 'Pin image'}"
+            class="w-full h-auto object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+          <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+            <div class="text-white w-full">
+              <h3 class="font-semibold text-lg mb-1 line-clamp-2">${img.title || 'Untitled'}</h3>
+              ${img.description ? `<p class="text-sm text-gray-200 line-clamp-1">${img.description}</p>` : ''}
+            </div>
+          </div>
+          <div class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <button 
+              class="like-btn bg-white/90 backdrop-blur-sm p-2.5 rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-200"
+              data-image-id="${img.id}"
+              data-liked="${img.likedByUser}"
+              title="${img.likedByUser ? 'Unlike' : 'Like'}">
+              <svg class="w-5 h-5 ${img.likedByUser ? 'fill-red-500' : 'fill-none stroke-gray-700'} stroke-2 transition-all duration-200" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+      
+      container.appendChild(div);
+      
+      const imgElement = div.querySelector('img');
+      imgElement.onload = () => resizeGridItem(div);
+    });
+
+    attachLikeHandlers();
+    skip += take;
+  } catch (err) {
+    console.error('Erro ao carregar mais imagens:', err);
+  } finally {
+    loading = false;
+  }
+}
+
+async function checkIfNeedsMore() {
+  if (document.body.offsetHeight <= window.innerHeight) {
+    await loadMoreImages();
+  }
+}
+
+window.addEventListener('scroll', async () => {
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 500) {
+    await loadMoreImages();
+  }
+});
+
+checkIfNeedsMore();
+</script>
+
+</body>
+</html>
